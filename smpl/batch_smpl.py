@@ -46,11 +46,6 @@ import numpy as np
 import tensorflow as tf
 from .batch_lbs import batch_rodrigues, batch_global_rigid_transformation
 
-# if sys.version_info[0] == 3:
-#     import _pickle as pickle
-# else:
-#     import cPickle as pickle
-
 import pickle
 
 
@@ -64,37 +59,27 @@ def sparse_to_tensor(x, dtype=tf.float32):
     indices = np.mat([coo.row, coo.col]).transpose()
     return tf.SparseTensor(indices, tf.convert_to_tensor(value=coo.data, dtype=dtype), coo.shape)
 
-# class SMPL(object):
-class SMPL(tf.keras.layers.Layer):
+class SMPL(object):
+# class SMPL(tf.keras.layers.Layer):
     def __init__(self, pkl_path, theta_in_rodrigues=True, theta_is_perfect_rotmtx=True, dtype=tf.float32):
-        super(SMPL, self).__init__(name='smpl_main')
+        # super(SMPL, self).__init__(name='smpl_main')
         """
         pkl_path is the path to a SMPL model
         """
         # -- Load SMPL params --
-        # with open(pkl_path, 'r') as f:
-        #     dd = pickle.load(f)
         with open(pkl_path, 'rb') as f:
             dd = pickle.load(f, encoding='iso-8859-1')
         # Mean template vertices
-        # self.v_template = tf.Variable(
-        #     undo_chumpy(dd['v_template']),
-        #     name='v_template',
-        #     dtype=dtype,
-        #     trainable=False)
         self.v_template = tf.constant(
             undo_chumpy(dd['v_template']),
             dtype=dtype)
         # Size of mesh [Number of vertices, 3]
-        # self.size = [self.v_template.shape[0].value, 3]
         self.size = [self.v_template.shape[0], 3]
         self.num_betas = dd['shapedirs'].shape[-1]
         # Shape blend shape basis: 6980 x 3 x 10
         # reshaped to 6980*30 x 10, transposed to 10x6980*3
         shapedir = np.reshape(
             undo_chumpy(dd['shapedirs']), [-1, self.num_betas]).T
-        # self.shapedirs = tf.Variable(
-        #     shapedir, name='shapedirs', dtype=dtype, trainable=False)
         self.shapedirs = tf.constant(
             shapedir, dtype=dtype)
 
@@ -106,8 +91,6 @@ class SMPL(tf.keras.layers.Layer):
         # 207 x 20670
         posedirs = np.reshape(
             undo_chumpy(dd['posedirs']), [-1, num_pose_basis]).T
-        # self.posedirs = tf.Variable(
-        #     posedirs, name='posedirs', dtype=dtype, trainable=False)
         self.posedirs = tf.constant(
             posedirs, dtype=dtype,)
 
@@ -115,12 +98,6 @@ class SMPL(tf.keras.layers.Layer):
         self.parents = dd['kintree_table'][0].astype(np.int32)
 
         # LBS weights
-        # self._weights = tf.Variable(
-        #     undo_chumpy(dd['weights']),
-        #     name='lbs_weights',
-        #     dtype=dtype,
-        #     trainable=False)
-
         self._weights = tf.constant(
             undo_chumpy(dd['weights']),
             dtype=dtype)
@@ -131,10 +108,7 @@ class SMPL(tf.keras.layers.Layer):
         # if in matrix form, is it already rotmax?
         self.theta_is_perfect_rotmtx = theta_is_perfect_rotmtx
 
-        # tmp - sw
-        # self.v_shaped_personal = tf.Variable()
-
-    def call(self, inputs):
+    def __call__(self, inputs):
         """
         Obtain SMPL with shape (beta) & pose (theta) inputs.
         Theta includes the global rotation.
@@ -153,7 +127,6 @@ class SMPL(tf.keras.layers.Layer):
         theta, beta, trans, v_personal = inputs
         name = None
         with tf.compat.v1.name_scope(name, "smpl_main", [beta, theta, trans, v_personal]):
-        # with tf.name_scope("smpl_main" if name is None else name):
             num_batch = tf.shape(beta)[0]
 
             # 1. Add shape blend shapes
@@ -169,11 +142,7 @@ class SMPL(tf.keras.layers.Layer):
             v_shaped_personal = v_shaped + v_personal
 
             # 2. Infer shape-dependent joint locations.
-            # Jx = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 0])))
-            # Jy = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 1])))
-            # Jz = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 2])))
             Jx = tf.transpose(a=tf.sparse.sparse_dense_matmul(self.J_regressor, tf.transpose(a=v_shaped_scaled[:, :, 0])))
-            # tf.print("------" + Jx.name, output_stream=sys.stdout)
             Jy = tf.transpose(a=tf.sparse.sparse_dense_matmul(self.J_regressor, tf.transpose(a=v_shaped_scaled[:, :, 1])))
             Jz = tf.transpose(a=tf.sparse.sparse_dense_matmul(self.J_regressor, tf.transpose(a=v_shaped_scaled[:, :, 2])))
             J = scale * tf.stack([Jx, Jy, Jz], axis=2)

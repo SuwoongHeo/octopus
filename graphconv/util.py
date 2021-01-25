@@ -73,5 +73,4 @@ def preprocess_adj(adj):
 def sparse_dot_adj_batch(adj, x):
     # adj: V x V
     # x: B x V x N
-    # return tf.map_fn(lambda xx: tf.sparse_tensor_dense_matmul(adj, xx), x)
     return tf.map_fn(lambda xx: tf.sparse.sparse_dense_matmul(adj, xx), x)

@@ -49,7 +49,6 @@ def batch_skew(vec, batch_size=None):
     returns N x 3 x 3. Skew_sym version of each matrix.
     """
     with tf.compat.v1.name_scope("batch_skew", values=[vec]):
-    # with tf.name_scope("batch_skew"):
         if batch_size is None:
             batch_size = vec.shape.as_list()[0]
         col_inds = tf.constant([1, 2, 3, 5, 6, 7])
@@ -76,7 +75,6 @@ def batch_rodrigues(theta, name=None):
     """
 
     with tf.compat.v1.name_scope(name, "batch_rodrigues", [theta]):
-    # with tf.name_scope("batch_rodrigues" if name is None else name):
         batch_size = tf.shape(theta)[0]
 
         # angle = tf.norm(theta, axis=1)
@@ -111,7 +109,6 @@ def batch_lrotmin(theta, name=None):
       diff_vec : `Tensor`: N x 207 rotation matrix of 23=(K-1) joints with identity subtracted.,
     """
     with tf.compat.v1.name_scope(name, "batch_lrotmin", [theta]):
-    # with tf.name_scope("batch_lrotmin" if name is None else name):
         with tf.name_scope("ignore_global"):
             theta = theta[:, 3:]
 
@@ -139,7 +136,6 @@ def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
       A     : `Tensor`: N x 24 4 x 4 relative joint transformations for LBS.
     """
     with tf.compat.v1.name_scope("batch_forward_kinematics", values=[Rs, Js]):
-    # with tf.name_scope("batch_forward_kinematics"):
         N = tf.shape(input=Rs)[0]
         if rotate_base:
             print('Flipping the SMPL coordinate frame!!!!')

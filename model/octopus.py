@@ -1,6 +1,5 @@
 import os
 import cv2
-import sys
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -8,8 +7,6 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.layers import Input, Flatten, Dense, Lambda, Conv2D, MaxPool2D, Average, Concatenate, Add, Reshape
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.models import Model
-from tensorflow.keras.callbacks import LambdaCallback
-from tqdm import tqdm
 from tqdm.keras import TqdmCallback
 
 from smpl.smpl_layer import SmplTPoseLayer, SmplBody25FaceLayer
@@ -22,10 +19,6 @@ from lib.geometry import compute_laplacian_diff, sparse_to_tensor
 from graphconv.util import sparse_dot_adj_batch, chebyshev_polynomials
 from render.render import perspective_projection
 
-#if sys.version_info[0] == 3:
-#    import _pickle as pkl
-#else:
-#    import cPickle as pkl
 import pickle as pkl
 import dill
 
@@ -34,12 +27,10 @@ dill._dill._reverse_typemap["ObjectType"] = object
 def NameLayer(name):
     return Lambda(lambda i: i, name=name)
 
-@tf.function
 def laplace_mse(_, ypred):
     w = regularize_laplace()
     return K.mean(w[np.newaxis, :, np.newaxis] * K.square(ypred), axis=-1)
 
-@tf.function
 def symmetry_mse(_, ypred):
     w = regularize_symmetry()
 
@@ -48,9 +39,7 @@ def symmetry_mse(_, ypred):
 
     return K.mean(w[np.newaxis, :, np.newaxis] * K.square(ypred - ypred_mirror), axis=-1)
 
-
 def reprojection(fl, cc, w, h):
-    @tf.function
     def _r(ytrue, ypred):
         b_size = tf.shape(input=ypred)[0]
         projection_matrix = perspective_projection(fl, cc, w, h, .1, 10)
@@ -59,11 +48,8 @@ def reprojection(fl, cc, w, h):
         ypred_h = tf.concat([ypred, tf.ones_like(ypred[:, :, -1:])], axis=2)
         ypred_proj = tf.matmul(ypred_h, projection_matrix)
         ypred_proj /= tf.expand_dims(ypred_proj[:, :, -1], -1)
-        reprerr = K.mean(K.square((ytrue[:, :, :2] - ypred_proj[:, :, :2]) * tf.expand_dims(ytrue[:, :, 2], -1)))
-        return reprerr
+        return K.mean(K.square((ytrue[:, :, :2] - ypred_proj[:, :, :2]) * tf.expand_dims(ytrue[:, :, 2], -1)))
     return _r
-
-
 
 class Octopus(object):
     def __init__(self, num=8, img_size=1080):
@@ -107,10 +93,7 @@ class Octopus(object):
         latent_code = Dense(20, name='latent_shape')
 
         self.pose_trans_tmp = tf.expand_dims(tf.concat((trans, pose), axis=0),0)
-        pose_trans = tf.tile(self.pose_trans_tmp, (batch_size, 1))
-        posetrans_init = pose_trans
-        # posetrans_init = Input(tensor=pose_trans, name='posetrans_init')
-        # self.inputs.append(posetrans_init)
+        posetrans_init = tf.tile(self.pose_trans_tmp, (batch_size, 1))
 
         J_flat = Flatten()
         concat_pose = Concatenate()
@@ -172,8 +155,6 @@ class Octopus(object):
         self.betas = Dense(10, name='betas', trainable=False)(self.dense_merged)
 
         with open(os.path.join(os.path.dirname(__file__), '../assets/smpl_sampling.pkl'), 'rb') as f:
-            # sampling = pkl.load(f)
-            # sampling = pkl.load(f, encoding='latin-1')
             sampling = pkl.load(f, encoding='iso-8859-1')
 
         M = sampling['meshes']
@@ -210,9 +191,7 @@ class Octopus(object):
         # we only need one instance per batch for laplace
         self.vertices_tposed = Lambda(lambda s: s[1], name='vertices_tposed')(smpls[0])
         vertices_naked = Lambda(lambda s: s[2], name='vertices_naked')(smpls[0])
-        #
-        # self.laplacian = Lambda(lambda v0, v1: compute_laplacian_diff(v0, v1, self.faces), name='laplacian')(
-        #     [self.vertices_tposed, vertices_naked])
+
         def laplacian_function(x):
             faces = self.faces
             v0, v1 = x
@@ -273,10 +252,6 @@ class Octopus(object):
             opt_shape_weights['face_reproj_{}'.format(i)] = 10. * self.num
 
         self.opt_shape_model.compile(loss=opt_shape_loss, loss_weights=opt_shape_weights, optimizer='adam')
-        # self.opt_shape_model.run_eagerly = True
-
-        # from tensorflow.keras.optimizers import Adam
-        # self.opt_shape_model.compile(loss=opt_shape_loss, loss_weights=opt_shape_weights, optimizer=Adam(), run_eagerly=False)
 
     def load(self, checkpoint_path):
         self.inference_model.load_weights(checkpoint_path, by_name=True)
@@ -304,14 +279,6 @@ class Octopus(object):
             batch_size=1, epochs=1, verbose=0,
             callbacks = [TqdmCallback(verbose=1)]
         )
-
-
-        # with tqdm(total=opt_steps) as pbar:
-        #     self.opt_pose_model.fit(
-        #         data, supervision,
-        #         batch_size=1, epochs=1, verbose=0,
-        #         callbacks=[LambdaCallback(on_batch_end=lambda e, l: pbar.update(1))]
-        #     )
 
     def opt_shape(self, segmentations, joints_2d, face_kps, opt_steps):
         data = {}
@@ -348,13 +315,6 @@ class Octopus(object):
             data, supervision,
             batch_size=1, epochs=1, verbose=0, callbacks=[TqdmCallback(verbose=1)]
         )
-        # with tqdm(total=opt_steps) as pbar:
-        #     self.opt_shape_model.fit(
-        #         data, supervision,
-        #         batch_size=1, epochs=1, verbose=0,
-        #         callbacks=[LambdaCallback(on_batch_begin=lambda e, l: pbar.update(1))]
-        #     )
-
 
     def predict(self, segmentations, joints_2d):
         data = {}

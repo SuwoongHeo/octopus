@@ -9,9 +9,6 @@ from glob import glob
 from lib.io import openpose_from_file, read_segmentation, write_mesh
 from model.octopus import Octopus
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 def main(weights, name, segm_dir, pose_dir, out_dir, opt_pose_steps, opt_shape_steps):
     segm_files = sorted(glob(os.path.join(segm_dir, '*.png')))
     pose_files = sorted(glob(os.path.join(pose_dir, '*.json')))
@@ -72,12 +69,10 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--opt_steps_pose', '-p', default=5, type=int,
-        # '--opt_steps_pose', '-p', default=0, type=int,
         help="Optimization steps pose")
 
     parser.add_argument(
-        # '--opt_steps_shape', '-s', default=15, type=int,
-        '--opt_steps_shape', '-s', default=3, type=int,
+        '--opt_steps_shape', '-s', default=15, type=int,
         help="Optimization steps")
 
     parser.add_argument(
@@ -89,11 +84,13 @@ if __name__ == '__main__':
         '--weights', '-w',
         default='weights/octopus_weights2.hdf5',
         help='Model weights file (*.hdf5)')
-    # tf.config.experimental_run_functions_eagerly(True)
-    # tf.compat.v1.enable_eager_execution()
-    # tf.compat.v1.disable_eager_execution()
-    # tf.compat.v1.experimental.output_all_intermediates(True)
-    # tf.config.experimental_run_functions_eagerly(False)
-    # tf.compat.v1.experimental.output_all_intermediates(True)
+
+    parser.add_argument(
+        '--gpuID', '-g',
+        default='0',
+        help='GPU ID to use (default : 0), -1 for CPU')
+
     args = parser.parse_args()
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpuID
     main(args.weights, args.name, args.segm_dir, args.pose_dir, args.out_dir, args.opt_steps_pose, args.opt_steps_shape)
