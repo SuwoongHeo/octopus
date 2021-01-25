@@ -3,13 +3,14 @@ import cv2
 import sys
 import numpy as np
 import tensorflow as tf
-import keras.backend as K
+import tensorflow.keras.backend as K
 
-from keras.layers import Input, Flatten, Dense, Lambda, Conv2D, MaxPool2D, Average, Concatenate, Add, Reshape
-from keras.initializers import RandomNormal
-from keras.models import Model
-from keras.callbacks import LambdaCallback
+from tensorflow.keras.layers import Input, Flatten, Dense, Lambda, Conv2D, MaxPool2D, Average, Concatenate, Add, Reshape
+from tensorflow.keras.initializers import RandomNormal
+from tensorflow.keras.models import Model
+from tensorflow.keras.callbacks import LambdaCallback
 from tqdm import tqdm
+from tqdm.keras import TqdmCallback
 
 from smpl.smpl_layer import SmplTPoseLayer, SmplBody25FaceLayer
 from graphconv.graphconvlayer import GraphConvolution
@@ -21,21 +22,24 @@ from lib.geometry import compute_laplacian_diff, sparse_to_tensor
 from graphconv.util import sparse_dot_adj_batch, chebyshev_polynomials
 from render.render import perspective_projection
 
-if sys.version_info[0] == 3:
-    import _pickle as pkl
-else:
-    import cPickle as pkl
+#if sys.version_info[0] == 3:
+#    import _pickle as pkl
+#else:
+#    import cPickle as pkl
+import pickle as pkl
+import dill
 
+dill._dill._reverse_typemap["ObjectType"] = object
 
 def NameLayer(name):
     return Lambda(lambda i: i, name=name)
 
-
+@tf.function
 def laplace_mse(_, ypred):
     w = regularize_laplace()
     return K.mean(w[np.newaxis, :, np.newaxis] * K.square(ypred), axis=-1)
 
-
+@tf.function
 def symmetry_mse(_, ypred):
     w = regularize_symmetry()
 
@@ -46,19 +50,19 @@ def symmetry_mse(_, ypred):
 
 
 def reprojection(fl, cc, w, h):
-
+    @tf.function
     def _r(ytrue, ypred):
-        b_size = tf.shape(ypred)[0]
+        b_size = tf.shape(input=ypred)[0]
         projection_matrix = perspective_projection(fl, cc, w, h, .1, 10)
         projection_matrix = tf.tile(tf.expand_dims(projection_matrix, 0), (b_size, 1, 1))
 
         ypred_h = tf.concat([ypred, tf.ones_like(ypred[:, :, -1:])], axis=2)
         ypred_proj = tf.matmul(ypred_h, projection_matrix)
         ypred_proj /= tf.expand_dims(ypred_proj[:, :, -1], -1)
-
-        return K.mean(K.square((ytrue[:, :, :2] - ypred_proj[:, :, :2]) * tf.expand_dims(ytrue[:, :, 2], -1)))
-
+        reprerr = K.mean(K.square((ytrue[:, :, :2] - ypred_proj[:, :, :2]) * tf.expand_dims(ytrue[:, :, 2], -1)))
+        return reprerr
     return _r
+
 
 
 class Octopus(object):
@@ -80,31 +84,33 @@ class Octopus(object):
         pose = tf.reshape(batch_rodrigues(pose_raw.reshape(-1, 3).astype(np.float32)), (-1, ))
         trans = np.array([0., 0.2, -2.3])
 
-        batch_size = tf.shape(images[0])[0]
+        batch_size = tf.shape(input=images[0])[0]
 
-        conv2d_0 = Conv2D(8, (3, 3), strides=(2, 2), activation='relu', kernel_initializer='he_normal', trainable=False)
-        maxpool_0 = MaxPool2D((2, 2))
+        conv2d_0 = Conv2D(8, (3, 3), strides=(2, 2), activation='relu', kernel_initializer='he_normal', name='conv2d_1', trainable=False)
+        maxpool_0 = MaxPool2D((2, 2), name='max_pooling2d_1')
 
-        conv2d_1 = Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', trainable=False)
-        maxpool_1 = MaxPool2D((2, 2))
+        conv2d_1 = Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', name='conv2d_2', trainable=False)
+        maxpool_1 = MaxPool2D((2, 2), name='max_pooling2d_2')
 
-        conv2d_2 = Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', trainable=False)
-        maxpool_2 = MaxPool2D((2, 2))
+        conv2d_2 = Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', name='conv2d_3', trainable=False)
+        maxpool_2 = MaxPool2D((2, 2), name='max_pooling2d_3')
 
-        conv2d_3 = Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', trainable=False)
-        maxpool_3 = MaxPool2D((2, 2))
+        conv2d_3 = Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', name='conv2d_4', trainable=False)
+        maxpool_3 = MaxPool2D((2, 2), name='max_pooling2d_4')
 
-        conv2d_4 = Conv2D(128, (3, 3), trainable=False)
-        maxpool_4 = MaxPool2D((2, 2))
+        conv2d_4 = Conv2D(128, (3, 3), name='conv2d_5', trainable=False)
+        maxpool_4 = MaxPool2D((2, 2), name='max_pooling2d_5')
 
         flat = Flatten()
         self.image_features = flat
 
         latent_code = Dense(20, name='latent_shape')
 
-        pose_trans = tf.tile(tf.expand_dims(tf.concat((trans, pose), axis=0), 0), (batch_size, 1))
-        posetrans_init = Input(tensor=pose_trans, name='posetrans_init')
-        self.inputs.append(posetrans_init)
+        self.pose_trans_tmp = tf.expand_dims(tf.concat((trans, pose), axis=0),0)
+        pose_trans = tf.tile(self.pose_trans_tmp, (batch_size, 1))
+        posetrans_init = pose_trans
+        # posetrans_init = Input(tensor=pose_trans, name='posetrans_init')
+        # self.inputs.append(posetrans_init)
 
         J_flat = Flatten()
         concat_pose = Concatenate()
@@ -166,7 +172,9 @@ class Octopus(object):
         self.betas = Dense(10, name='betas', trainable=False)(self.dense_merged)
 
         with open(os.path.join(os.path.dirname(__file__), '../assets/smpl_sampling.pkl'), 'rb') as f:
-            sampling = pkl.load(f,encoding='iso-8859-1')
+            # sampling = pkl.load(f)
+            # sampling = pkl.load(f, encoding='latin-1')
+            sampling = pkl.load(f, encoding='iso-8859-1')
 
         M = sampling['meshes']
         U = sampling['up']
@@ -193,7 +201,7 @@ class Octopus(object):
 
         self.offsets = Lambda(lambda x: x / 10., name='offsets')(conv_l0)
 
-        smpl = SmplTPoseLayer(theta_in_rodrigues=False, theta_is_perfect_rotmtx=False)
+        smpl = SmplTPoseLayer(theta_in_rodrigues=False, theta_is_perfect_rotmtx=False, name='smpl_t_pose_layer_1')
         smpls = [NameLayer('smpl_{}'.format(i))(smpl([p, self.betas, t, self.offsets])) for i, (p, t) in
                  enumerate(zip(self.poses, self.ts))]
 
@@ -202,13 +210,18 @@ class Octopus(object):
         # we only need one instance per batch for laplace
         self.vertices_tposed = Lambda(lambda s: s[1], name='vertices_tposed')(smpls[0])
         vertices_naked = Lambda(lambda s: s[2], name='vertices_naked')(smpls[0])
-        #function_laplacian=
-        def laplacian_function(x,faces=self.faces):v0,v1=x;return compute_laplacian_diff(v0, v1, faces)
-        self.laplacian = Lambda(laplacian_function, name='laplacian')([self.vertices_tposed, vertices_naked])
+        #
+        # self.laplacian = Lambda(lambda v0, v1: compute_laplacian_diff(v0, v1, self.faces), name='laplacian')(
+        #     [self.vertices_tposed, vertices_naked])
+        def laplacian_function(x):
+            faces = self.faces
+            v0, v1 = x
+            return compute_laplacian_diff(v0, v1, faces)
+        self.laplacian = Lambda(lambda v: laplacian_function(v), name='laplacian')([self.vertices_tposed, vertices_naked])
         self.symmetry = NameLayer('symmetry')(self.vertices_tposed)
 
-        l = SmplBody25FaceLayer(theta_in_rodrigues=False, theta_is_perfect_rotmtx=False)
-        kps = [NameLayer('kps_{}'.format(i))(l([p, self.betas, t]))
+        smplf = SmplBody25FaceLayer(theta_in_rodrigues=False, theta_is_perfect_rotmtx=False)
+        kps = [NameLayer('kps_{}'.format(i))(smplf([p, self.betas, t]))
                for i, (p, t) in enumerate(zip(self.poses, self.ts))]
 
         self.Js = [Lambda(lambda jj: jj[:, :25], name='J_reproj_{}'.format(i))(j) for i, j in enumerate(kps)]
@@ -240,7 +253,6 @@ class Octopus(object):
             inputs=self.inputs,
             outputs=self.Js + self.face_kps + self.rendered + [self.symmetry, self.laplacian]
         )
-
         opt_shape_loss = {
             'laplacian': laplace_mse,
             'symmetry': symmetry_mse,
@@ -261,6 +273,10 @@ class Octopus(object):
             opt_shape_weights['face_reproj_{}'.format(i)] = 10. * self.num
 
         self.opt_shape_model.compile(loss=opt_shape_loss, loss_weights=opt_shape_weights, optimizer='adam')
+        # self.opt_shape_model.run_eagerly = True
+
+        # from tensorflow.keras.optimizers import Adam
+        # self.opt_shape_model.compile(loss=opt_shape_loss, loss_weights=opt_shape_weights, optimizer=Adam(), run_eagerly=False)
 
     def load(self, checkpoint_path):
         self.inference_model.load_weights(checkpoint_path, by_name=True)
@@ -283,12 +299,19 @@ class Octopus(object):
                 (opt_steps, 1, 1)
             )
 
-        with tqdm(total=opt_steps) as pbar:
-            self.opt_pose_model.fit(
-                data, supervision,
-                batch_size=1, epochs=1, verbose=0,
-                callbacks=[LambdaCallback(on_batch_end=lambda e, l: pbar.update(1))]
-            )
+        self.opt_pose_model.fit(
+            data, supervision,
+            batch_size=1, epochs=1, verbose=0,
+            callbacks = [TqdmCallback(verbose=1)]
+        )
+
+
+        # with tqdm(total=opt_steps) as pbar:
+        #     self.opt_pose_model.fit(
+        #         data, supervision,
+        #         batch_size=1, epochs=1, verbose=0,
+        #         callbacks=[LambdaCallback(on_batch_end=lambda e, l: pbar.update(1))]
+        #     )
 
     def opt_shape(self, segmentations, joints_2d, face_kps, opt_steps):
         data = {}
@@ -321,16 +344,19 @@ class Octopus(object):
                     -1),
                 (opt_steps, 1, 1, 1)
             )
+        self.opt_shape_model.fit(
+            data, supervision,
+            batch_size=1, epochs=1, verbose=0, callbacks=[TqdmCallback(verbose=1)]
+        )
+        # with tqdm(total=opt_steps) as pbar:
+        #     self.opt_shape_model.fit(
+        #         data, supervision,
+        #         batch_size=1, epochs=1, verbose=0,
+        #         callbacks=[LambdaCallback(on_batch_begin=lambda e, l: pbar.update(1))]
+        #     )
 
-        with tqdm(total=opt_steps) as pbar:
-            self.opt_shape_model.fit(
-                data, supervision,
-                batch_size=1, epochs=1, verbose=0,
-                callbacks=[LambdaCallback(on_batch_begin=lambda e, l: pbar.update(1))]
-            )
 
     def predict(self, segmentations, joints_2d):
-
         data = {}
 
         for i in range(self.num):

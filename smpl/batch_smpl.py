@@ -46,10 +46,12 @@ import numpy as np
 import tensorflow as tf
 from .batch_lbs import batch_rodrigues, batch_global_rigid_transformation
 
-if sys.version_info[0] == 3:
-    import _pickle as pickle
-else:
-    import cPickle as pickle
+# if sys.version_info[0] == 3:
+#     import _pickle as pickle
+# else:
+#     import cPickle as pickle
+
+import pickle
 
 
 # There are chumpy variables so convert them to numpy.
@@ -60,32 +62,41 @@ def undo_chumpy(x):
 def sparse_to_tensor(x, dtype=tf.float32):
     coo = x.tocoo()
     indices = np.mat([coo.row, coo.col]).transpose()
-    return tf.SparseTensor(indices, tf.convert_to_tensor(coo.data, dtype=dtype), coo.shape)
+    return tf.SparseTensor(indices, tf.convert_to_tensor(value=coo.data, dtype=dtype), coo.shape)
 
-
-class SMPL(object):
+# class SMPL(object):
+class SMPL(tf.keras.layers.Layer):
     def __init__(self, pkl_path, theta_in_rodrigues=True, theta_is_perfect_rotmtx=True, dtype=tf.float32):
+        super(SMPL, self).__init__(name='smpl_main')
         """
         pkl_path is the path to a SMPL model
         """
         # -- Load SMPL params --
+        # with open(pkl_path, 'r') as f:
+        #     dd = pickle.load(f)
         with open(pkl_path, 'rb') as f:
-            dd = pickle.load(f,encoding='iso-8859-1')
+            dd = pickle.load(f, encoding='iso-8859-1')
         # Mean template vertices
-        self.v_template = tf.Variable(
+        # self.v_template = tf.Variable(
+        #     undo_chumpy(dd['v_template']),
+        #     name='v_template',
+        #     dtype=dtype,
+        #     trainable=False)
+        self.v_template = tf.constant(
             undo_chumpy(dd['v_template']),
-            name='v_template',
-            dtype=dtype,
-            trainable=False)
+            dtype=dtype)
         # Size of mesh [Number of vertices, 3]
-        self.size = [self.v_template.shape[0].value, 3]
+        # self.size = [self.v_template.shape[0].value, 3]
+        self.size = [self.v_template.shape[0], 3]
         self.num_betas = dd['shapedirs'].shape[-1]
         # Shape blend shape basis: 6980 x 3 x 10
         # reshaped to 6980*30 x 10, transposed to 10x6980*3
         shapedir = np.reshape(
             undo_chumpy(dd['shapedirs']), [-1, self.num_betas]).T
-        self.shapedirs = tf.Variable(
-            shapedir, name='shapedirs', dtype=dtype, trainable=False)
+        # self.shapedirs = tf.Variable(
+        #     shapedir, name='shapedirs', dtype=dtype, trainable=False)
+        self.shapedirs = tf.constant(
+            shapedir, dtype=dtype)
 
         # Regressor for joint locations given shape - 6890 x 24
         self.J_regressor = sparse_to_tensor(dd['J_regressor'], dtype=dtype)
@@ -95,18 +106,24 @@ class SMPL(object):
         # 207 x 20670
         posedirs = np.reshape(
             undo_chumpy(dd['posedirs']), [-1, num_pose_basis]).T
-        self.posedirs = tf.Variable(
-            posedirs, name='posedirs', dtype=dtype, trainable=False)
+        # self.posedirs = tf.Variable(
+        #     posedirs, name='posedirs', dtype=dtype, trainable=False)
+        self.posedirs = tf.constant(
+            posedirs, dtype=dtype,)
 
         # indices of parents for each joints
         self.parents = dd['kintree_table'][0].astype(np.int32)
 
         # LBS weights
-        self.weights = tf.Variable(
+        # self._weights = tf.Variable(
+        #     undo_chumpy(dd['weights']),
+        #     name='lbs_weights',
+        #     dtype=dtype,
+        #     trainable=False)
+
+        self._weights = tf.constant(
             undo_chumpy(dd['weights']),
-            name='lbs_weights',
-            dtype=dtype,
-            trainable=False)
+            dtype=dtype)
 
         # expect theta in rodrigues form
         self.theta_in_rodrigues = theta_in_rodrigues
@@ -114,7 +131,10 @@ class SMPL(object):
         # if in matrix form, is it already rotmax?
         self.theta_is_perfect_rotmtx = theta_is_perfect_rotmtx
 
-    def __call__(self, theta, beta, trans, v_personal, name=None):
+        # tmp - sw
+        # self.v_shaped_personal = tf.Variable()
+
+    def call(self, inputs):
         """
         Obtain SMPL with shape (beta) & pose (theta) inputs.
         Theta includes the global rotation.
@@ -130,8 +150,10 @@ class SMPL(object):
         If get_skin is True, also returns
           - Verts: N x 6980 x 3
         """
-
-        with tf.name_scope(name, "smpl_main", [beta, theta, trans, v_personal]):
+        theta, beta, trans, v_personal = inputs
+        name = None
+        with tf.compat.v1.name_scope(name, "smpl_main", [beta, theta, trans, v_personal]):
+        # with tf.name_scope("smpl_main" if name is None else name):
             num_batch = tf.shape(beta)[0]
 
             # 1. Add shape blend shapes
@@ -143,13 +165,17 @@ class SMPL(object):
             body_height = (v_shaped_scaled[:, 2802, 1] + v_shaped_scaled[:, 6262, 1]) - (v_shaped_scaled[:, 2237, 1] + v_shaped_scaled[:, 6728, 1])
             scale = tf.reshape(1.66 / body_height, (-1, 1, 1))
 
-            self.v_shaped = scale * v_shaped_scaled
-            self.v_shaped_personal = self.v_shaped + v_personal
+            v_shaped = scale * v_shaped_scaled
+            v_shaped_personal = v_shaped + v_personal
 
             # 2. Infer shape-dependent joint locations.
-            Jx = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 0])))
-            Jy = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 1])))
-            Jz = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 2])))
+            # Jx = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 0])))
+            # Jy = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 1])))
+            # Jz = tf.transpose(tf.sparse_tensor_dense_matmul(self.J_regressor, tf.transpose(v_shaped_scaled[:, :, 2])))
+            Jx = tf.transpose(a=tf.sparse.sparse_dense_matmul(self.J_regressor, tf.transpose(a=v_shaped_scaled[:, :, 0])))
+            # tf.print("------" + Jx.name, output_stream=sys.stdout)
+            Jy = tf.transpose(a=tf.sparse.sparse_dense_matmul(self.J_regressor, tf.transpose(a=v_shaped_scaled[:, :, 1])))
+            Jz = tf.transpose(a=tf.sparse.sparse_dense_matmul(self.J_regressor, tf.transpose(a=v_shaped_scaled[:, :, 2])))
             J = scale * tf.stack([Jx, Jy, Jz], axis=2)
 
             # 3. Add pose blend shapes
@@ -161,35 +187,36 @@ class SMPL(object):
                 if self.theta_is_perfect_rotmtx:
                     Rs = theta
                 else:
-                    s, u, v = tf.svd(theta)
-                    Rs = tf.matmul(u, tf.transpose(v, perm=[0, 1, 3, 2]))
+                    # s, u, v = tf.svd(theta)
+                    s, u, v = tf.linalg.svd(theta)
+                    Rs = tf.matmul(u, tf.transpose(a=v, perm=[0, 1, 3, 2]))
 
-            with tf.name_scope("lrotmin"):
+            with tf.compat.v1.name_scope("lrotmin"):
                 # Ignore global rotation.
                 pose_feature = tf.reshape(Rs[:, 1:, :, :] - tf.eye(3), [-1, 207])
 
             # (N x 207) x (207, 20670) -> N x 6890 x 3
-            self.v_posed = tf.reshape(
+            v_posed = tf.reshape(
                 tf.matmul(pose_feature, self.posedirs),
-                [-1, self.size[0], self.size[1]]) + self.v_shaped_personal
+                [-1, self.size[0], self.size[1]]) + v_shaped_personal
 
             #4. Get the global joint location
-            self.J_transformed, A = batch_global_rigid_transformation(Rs, J, self.parents)
-            self.J_transformed += tf.expand_dims(trans, axis=1)
+            J_transformed, A = batch_global_rigid_transformation(Rs, J, self.parents)
+            J_transformed += tf.expand_dims(trans, axis=1)
 
             # 5. Do skinning:
             # W is N x 6890 x 24
             W = tf.reshape(
-                tf.tile(self.weights, [num_batch, 1]), [num_batch, -1, 24])
+                tf.tile(self._weights, [num_batch, 1]), [num_batch, -1, 24])
             # (N x 6890 x 24) x (N x 24 x 16)
             T = tf.reshape(
                 tf.matmul(W, tf.reshape(A, [num_batch, 24, 16])),
                 [num_batch, -1, 4, 4])
             v_posed_homo = tf.concat(
-                [self.v_posed, tf.ones([num_batch, self.v_posed.shape[1], 1])], 2)
+                [v_posed, tf.ones([num_batch, v_posed.shape[1], 1])], 2)
             v_homo = tf.matmul(T, tf.expand_dims(v_posed_homo, -1))
 
             verts = v_homo[:, :, :3, 0]
             verts_t = verts + tf.expand_dims(trans, axis=1)
 
-            return verts_t
+            return verts_t, v_shaped_personal, v_shaped

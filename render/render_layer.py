@@ -1,7 +1,7 @@
-from .render import render_colored_batch
+from render.render import render_colored_batch
 import numpy as np
 
-from keras.engine.topology import Layer
+from tensorflow.keras.layers import Layer
 
 
 class RenderLayer(Layer):

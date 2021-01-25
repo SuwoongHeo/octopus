@@ -1,7 +1,7 @@
-import keras.backend as K
-from keras.engine.topology import Layer
-from keras.layers import initializers, activations
-from .util import sparse_dot_adj_batch
+import tensorflow.keras.backend as K
+from tensorflow.keras.layers import Layer
+from tensorflow.keras import initializers, activations
+from graphconv.util import sparse_dot_adj_batch
 
 
 class GraphConvolution(Layer):
@@ -20,7 +20,7 @@ class GraphConvolution(Layer):
         super(GraphConvolution, self).__init__(**kwargs)
 
     def build(self, input_shape):
-        for i in range(len(self.support)):
+        for i in range(len(list(self.support))):
             self.kernels.append(self.add_weight(name='kernel',
                                                 shape=(input_shape[2], self.output_dim),
                                                 initializer=self.kernel_initializer,

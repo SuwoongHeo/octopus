@@ -19,7 +19,8 @@ def get_bodypart_vertex_ids():
 
     if _cache is None:
         with open(os.path.join(os.path.dirname(__file__), '../assets/bodyparts.pkl'), 'rb') as fp:
-            _cache = pkl.load(fp,encoding='iso-8859-1')
+            # _cache = pkl.load(fp)
+            _cache = pkl.load(fp, encoding='iso-8859-1')
 
     return _cache
 
