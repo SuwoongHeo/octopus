@@ -1,0 +1,11 @@
+.idea/
+.DS_Store
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+weights
+out
+data
+assets
