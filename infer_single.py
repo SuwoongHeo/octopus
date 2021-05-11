@@ -41,17 +41,17 @@ def main(weights, name, img_dir, segm_dir, pose_dir, out_dir, opt_pose_steps, op
         j_2d_test.append(j_o)
         f_2d_test.append(f_o)
 
-    # if opt_pose_steps:
-    #     print('Optimizing for pose...')
-    #     model.opt_pose(segmentations, joints_2d, opt_steps=opt_pose_steps)
-    #
-    # if opt_shape_steps:
-    #     print('Optimizing for shape...')
-    #     model.opt_shape(segmentations, joints_2d, face_2d, opt_steps=opt_shape_steps)
+    if opt_pose_steps:
+        print('Optimizing for pose...')
+        model.opt_pose(segmentations, joints_2d, opt_steps=opt_pose_steps)
 
-    # if opt_texture_steps:
-    #     print('Optimizing for texture...')
-    #     model.opt_texture(segmentations, joints_2d, images, opt_texture_steps)
+    if opt_shape_steps:
+        print('Optimizing for shape...')
+        model.opt_shape(segmentations, joints_2d, face_2d, opt_steps=opt_shape_steps)
+
+    if opt_texture_steps:
+        print('Optimizing for texture...')
+        model.opt_texture(segmentations, joints_2d, images, opt_texture_steps)
 
     print('Estimating shape...')
     pred = model.predict(segmentations, joints_2d)
@@ -60,7 +60,7 @@ def main(weights, name, img_dir, segm_dir, pose_dir, out_dir, opt_pose_steps, op
     for i in range(len(pred['rendered_color'])):
         imageio.imwrite(f'{out_dir}/{name}_{i}_color.png', pred['rendered_color'][i, 0])
 
-    imageio.imwrite(f'{out_dir}/{name}.png', model.uv.numpy())
+    # imageio.imwrite(f'{out_dir}/{name}.png', model.uv.numpy())
 
     print('Done.')
 
@@ -97,7 +97,7 @@ if __name__ == '__main__':
         help="Optimization steps")
 
     parser.add_argument(
-        '--opt_steps_texture', '-t', default=100, type=int,
+        '--opt_steps_texture', '-t', default=500, type=int,
         help="Optimization steps for texture")
 
     parser.add_argument(
