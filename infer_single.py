@@ -1,5 +1,7 @@
 import os
 import argparse
+import pickle
+
 import tensorflow as tf
 # import keras.backend as K
 from tensorflow.python.keras import backend as K
@@ -55,6 +57,9 @@ def main(weights, name, img_dir, segm_dir, pose_dir, out_dir, opt_pose_steps, op
 
     print('Estimating shape...')
     pred = model.predict(segmentations, joints_2d)
+
+    with open(f'{out_dir}/{name}.pkl', 'wb') as f:
+        pickle.dump(pred['vertices'], f)
 
     write_mesh('{}/{}.obj'.format(out_dir, name), pred['vertices'][0], pred['faces'])
     for i in range(len(pred['rendered_color'])):
@@ -118,5 +123,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpuID
+    os.makedirs(args.out_dir, exist_ok=True)
     main(args.weights, args.name, args.img_dir, args.segm_dir, args.pose_dir, args.out_dir, args.opt_steps_pose,
          args.opt_steps_shape, args.opt_steps_texture)

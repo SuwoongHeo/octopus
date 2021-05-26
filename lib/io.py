@@ -38,8 +38,8 @@ def read_segmentation(file):
 def openpose_from_file(file, resolution=(1080, 1080), person=0):
     with open(file) as f:
         #todo temporary
-        data = json.load(f)['people'][person]
-        # data = json.load(f)['people']
+        # data = json.load(f)['people'][person]
+        data = json.load(f)['people']
 
         pose = np.array(data['pose_keypoints_2d']).reshape(-1, 3)
         pose_orig = pose
