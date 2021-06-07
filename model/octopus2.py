@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
-from tensorflow.keras.layers import Input, Flatten, Dense, Lambda, Conv2D, MaxPool2D, Average, Concatenate, Add, Reshape
+from tensorflow.keras.layers import Input, Flatten, Dense, Lambda, Conv2D, MaxPool2D, Average, Concatenate, Add, Reshape, UpSampling2D
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.models import Model
 from tqdm.keras import TqdmCallback
@@ -22,6 +22,7 @@ from render.render import perspective_projection
 import pickle as pkl
 import dill
 import imageio
+from skimage import transform
 
 from lib.io import parse_obj
 
@@ -89,48 +90,17 @@ class Octopus(object):
 
         images = [Input(shape=(self.img_size, self.img_size, 3), name='image_{}'.format(i)) for i in range(self.num)]
         Js = [Input(shape=(25, 3), name='J_2d_{}'.format(i)) for i in range(self.num)]
+        segmentations = [Input(shape=(self.img_size, self.img_size, 3), name='segmentation_{}'.format(i)) for i in range(self.num)]
         # rgbs = [Input(shape=(self.img_size, self.img_size, 3), name='rgb_{}'.format(i)) for i in range(self.num)]
+        uv_template = imageio.imread(
+            os.path.join(os.path.dirname(__file__), '../assets/smpl_part/smpl_uv.png')) / 255.
+        uv_template = uv_template[..., :-1] * uv_template[..., -1:]
+        uv_template = transform.resize(uv_template, (self.img_size, self.img_size))
+        uv_template = tf.convert_to_tensor(uv_template[None], tf.float32)
 
         self.inputs.extend(images)
         self.inputs.extend(Js)
-
-        # uv = imageio.imread(
-        #     os.path.join(os.path.dirname(__file__), '../assets/smpl_part/smpl_uv.png')) / 255.
-        # uv = uv[..., :-1] * uv[..., -1:]
-        # self.uv = tf.Variable(np.array(uv, 'float32'), trainable=True, name='UV')
-        # smpl_vertices, smpl_uv = parse_obj(os.path.join(os.path.dirname(__file__), '../assets/smpl_part/smpl_uv.obj'))
-        # texture_dict = dict(
-        #     np.load(os.path.join(os.path.dirname(__file__), '../assets/smpl_part/smpl_texture_dict.npy'),
-        #             allow_pickle=True).item())
-        # smpl_mesh_uv = np.array(smpl_uv, 'float32') * self.uv.shape[0]
-
-        # g.watch(self.uv)
-        # smpl_mesh_u = smpl_mesh_uv[:, 0]
-        # smpl_mesh_u_c = np.ceil(smpl_mesh_u)
-        # smpl_mesh_u_f = np.floor(smpl_mesh_u)
-        # smpl_mesh_v = float(self.uv.shape[0]) - smpl_mesh_uv[:, 1]
-        # smpl_mesh_v_c = np.ceil(smpl_mesh_v)
-        # smpl_mesh_v_f = np.floor(smpl_mesh_v)
-        #
-        # uv_ff = tf.gather_nd(self.uv,
-        #                      indices=tf.constant(np.stack((smpl_mesh_v_f, smpl_mesh_u_f), axis=1), dtype=tf.int64))
-        # uv_cf = tf.gather_nd(self.uv,
-        #                      indices=tf.constant(np.stack((smpl_mesh_v_f, smpl_mesh_u_c), axis=1), dtype=tf.int64))
-        # uv_cc = tf.gather_nd(self.uv,
-        #                      indices=tf.constant(np.stack((smpl_mesh_v_c, smpl_mesh_u_c), axis=1), dtype=tf.int64))
-        # uv_fc = tf.gather_nd(self.uv,
-        #                      indices=tf.constant(np.stack((smpl_mesh_v_c, smpl_mesh_u_f), axis=1), dtype=tf.int64))
-        #
-        # uc = (smpl_mesh_u_c - smpl_mesh_u)[..., None]
-        # uf = (smpl_mesh_u - smpl_mesh_u_f)[..., None]
-        # vc = (smpl_mesh_v_c - smpl_mesh_v)[..., None]
-        # vf = (smpl_mesh_v - smpl_mesh_v_f)[..., None]
-        # smpl_color = vc * (uc * uv_ff + uf * uv_cf) + vf * (uc * uv_fc + uf * uv_cc)
-        # vertex_colors = []
-        # for i in range(6890):
-        #     colors = tf.reduce_mean(tf.gather(smpl_color, texture_dict[i]), axis=0, keepdims=True)
-        #     vertex_colors.append(colors)
-        # vertex_colors = tf.concat(vertex_colors, axis=0)
+        self.inputs.extend(segmentations)
 
         pose_raw = np.load(os.path.join(os.path.dirname(__file__), '../assets/mean_a_pose.npy'))
         pose_raw[:3] = 0.
@@ -140,22 +110,22 @@ class Octopus(object):
         batch_size = tf.shape(input=images[0])[0]
 
         conv2d_0 = Conv2D(8, (3, 3), strides=(2, 2), activation='relu', kernel_initializer='he_normal', name='conv2d_1',
-                          trainable=False)
+                          trainable=True)
         maxpool_0 = MaxPool2D((2, 2), name='max_pooling2d_1')
 
         conv2d_1 = Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', name='conv2d_2',
-                          trainable=False)
+                          trainable=True)
         maxpool_1 = MaxPool2D((2, 2), name='max_pooling2d_2')
 
         conv2d_2 = Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', name='conv2d_3',
-                          trainable=False)
+                          trainable=True)
         maxpool_2 = MaxPool2D((2, 2), name='max_pooling2d_3')
 
         conv2d_3 = Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', name='conv2d_4',
-                          trainable=False)
+                          trainable=True)
         maxpool_3 = MaxPool2D((2, 2), name='max_pooling2d_4')
 
-        conv2d_4 = Conv2D(128, (3, 3), name='conv2d_5', trainable=False)
+        conv2d_4 = Conv2D(128, (3, 3), name='conv2d_5', trainable=True)
         maxpool_4 = MaxPool2D((2, 2), name='max_pooling2d_5')
 
         flat = Flatten()
@@ -178,8 +148,31 @@ class Octopus(object):
 
         dense_layers = []
 
-        for i, (J, image) in enumerate(zip(Js, images)):
-            conv2d_0_i = conv2d_0(image)
+        # UV network
+        upconv2d_1 = Conv2D(64, (3, 3), padding='same', activation='relu', name='upconv2d_1', kernel_initializer='he_normal', trainable=True)
+        up1 = UpSampling2D(size=(2, 2), interpolation='bilinear', name='up1')
+
+        upconv2d_2 = Conv2D(64, (3, 3), padding='same', activation='relu', name='upconv2d_2', kernel_initializer='he_normal', trainable=True)
+        up2 = UpSampling2D(size=(2, 2), interpolation='bilinear', name='up2')
+
+        upconv2d_3 = Conv2D(32, (3, 3), padding='same', activation='relu', name='upconv2d_3', kernel_initializer='he_normal', trainable=True)
+        up3 = UpSampling2D(size=(2, 2), interpolation='bilinear', name='up3')
+
+        upconv2d_4 = Conv2D(16, (3, 3), padding='same', activation='relu', name='upconv2d_4', kernel_initializer='he_normal', trainable=True)
+        up4 = UpSampling2D(size=(2, 2), interpolation='bilinear', name='up4')
+
+        upconv2d_5 = Conv2D(8, (3, 3), padding='same', activation='relu', name='upconv2d_5', kernel_initializer='he_normal', trainable=True)
+        up5 = UpSampling2D(size=(2, 2), interpolation='bilinear', name='up5')
+
+        upconv2d_6 = Conv2D(4, (3, 3), padding='same', activation='relu', name='upconv2d_6', kernel_initializer='he_normal', trainable=True)
+        up6 = UpSampling2D(size=(2, 2), interpolation='bilinear', name='up6')
+
+        upconv2d_7 = Conv2D(4, (3, 3), padding='same', name='upconv2d_7', kernel_initializer='he_normal', trainable=True)
+
+        uv = 0.
+        masks = [tf.cast(tf.reduce_sum(img, axis=-1, keepdims=True) > 0., tf.float32) for img in segmentations]
+        for i, (J, image, mask, seg) in enumerate(zip(Js, images, masks, segmentations)):
+            conv2d_0_i = conv2d_0(tf.concat((image * mask, uv_template, seg), -1))
             maxpool_0_i = maxpool_0(conv2d_0_i)
 
             conv2d_1_i = conv2d_1(maxpool_0_i)
@@ -193,6 +186,16 @@ class Octopus(object):
 
             conv2d_4_i = conv2d_4(maxpool_3_i)
             maxpool_4_i = maxpool_4(conv2d_4_i)
+
+            upconv2d_1_i = up1(upconv2d_1(maxpool_4_i))
+            upconv2d_2_i = up2(upconv2d_2(tf.concat((tf.image.resize(upconv2d_1_i, maxpool_3_i.shape[1:3]), maxpool_3_i), -1)))
+            upconv2d_3_i = up3(upconv2d_3(tf.concat((tf.image.resize(upconv2d_2_i, maxpool_2_i.shape[1:3]), maxpool_2_i), -1)))
+            upconv2d_4_i = up4(upconv2d_4(tf.concat((tf.image.resize(upconv2d_3_i, maxpool_1_i.shape[1:3]), maxpool_1_i), -1)))
+            upconv2d_5_i = up5(upconv2d_5(tf.concat((tf.image.resize(upconv2d_4_i, maxpool_0_i.shape[1:3]), maxpool_0_i), -1)))
+            upconv2d_6_i = up6(upconv2d_6(upconv2d_5_i))
+            upconv2d_7_i = tf.image.resize(upconv2d_7(upconv2d_6_i), image.shape[1:3])
+            visibility_i, uv_i = tf.split(upconv2d_7_i, [1, 3], -1)
+            uv = uv + tf.sigmoid(visibility_i) * (tf.tanh(uv_i) / 2. + .5)
 
             # shape
             flat_i = flat(maxpool_4_i)
@@ -216,6 +219,40 @@ class Octopus(object):
             self.ts.append(
                 Lambda(lambda x: x[:, :3], name='trans_{}'.format(i))(posetrans_i)
             )
+
+        uv = uv / len(images)
+        # _, smpl_uv = parse_obj(os.path.join(os.path.dirname(__file__), '../assets/smpl_part/smpl_uv.obj'))
+        # texture_dict = dict(
+        #     np.load(os.path.join(os.path.dirname(__file__), '../assets/smpl_part/smpl_texture_dict.npy'),
+        #             allow_pickle=True).item())
+        # smpl_mesh_uv = np.array(smpl_uv, 'float32') * uv.shape[0]
+        #
+        # smpl_mesh_u = smpl_mesh_uv[:, 0]
+        # smpl_mesh_u_c = np.ceil(smpl_mesh_u)
+        # smpl_mesh_u_f = np.floor(smpl_mesh_u)
+        # smpl_mesh_v = float(uv.shape[0]) - smpl_mesh_uv[:, 1]
+        # smpl_mesh_v_c = np.ceil(smpl_mesh_v)
+        # smpl_mesh_v_f = np.floor(smpl_mesh_v)
+        #
+        # uv_ff = tf.gather_nd(uv,
+        #                      indices=tf.constant(np.stack((smpl_mesh_v_f, smpl_mesh_u_f), axis=1), dtype=tf.int64))
+        # uv_cf = tf.gather_nd(uv,
+        #                      indices=tf.constant(np.stack((smpl_mesh_v_f, smpl_mesh_u_c), axis=1), dtype=tf.int64))
+        # uv_cc = tf.gather_nd(uv,
+        #                      indices=tf.constant(np.stack((smpl_mesh_v_c, smpl_mesh_u_c), axis=1), dtype=tf.int64))
+        # uv_fc = tf.gather_nd(uv,
+        #                      indices=tf.constant(np.stack((smpl_mesh_v_c, smpl_mesh_u_f), axis=1), dtype=tf.int64))
+        #
+        # uc = (smpl_mesh_u_c - smpl_mesh_u)[..., None]
+        # uf = (smpl_mesh_u - smpl_mesh_u_f)[..., None]
+        # vc = (smpl_mesh_v_c - smpl_mesh_v)[..., None]
+        # vf = (smpl_mesh_v - smpl_mesh_v_f)[..., None]
+        # smpl_color = vc * (uc * uv_ff + uf * uv_cf) + vf * (uc * uv_fc + uf * uv_cc)
+        # vertex_colors = []
+        # for i in range(6890):
+        #     colors = tf.reduce_mean(tf.gather(smpl_color, texture_dict[i]), axis=0, keepdims=True)
+        #     vertex_colors.append(colors)
+        # vertex_colors = tf.concat(vertex_colors, axis=0)
 
         if self.num > 1:
             self.dense_merged = Average(name='merged_latent_shape')(dense_layers)
@@ -289,15 +326,13 @@ class Octopus(object):
         self.rendered = [NameLayer('rendered_{}'.format(i))(renderer(v)) for i, v in enumerate(self.vertices)]
 
         # color
-        self.vertex_colors = tf.Variable(np.random.rand(6890, 3).astype('float32'), trainable=True)
-        vertex_colors = self.vertex_colors
-        renderer_color = RenderLayer(self.img_size, self.img_size, 3, vertex_colors, np.ones(3), self.faces,
-                                     [self.img_size, self.img_size], [self.img_size / 2., self.img_size / 2.],
-                                     name='render_color_layer')
-        self.rendered_color = [renderer_color(tf.stop_gradient(v)) for i, v in enumerate(self.vertices)]
-        masks = [tf.cast(tf.reduce_sum(img, axis=-1, keepdims=True) > 0., tf.float32) for img in images]
-        rendered_color_and_mask = [NameLayer(f'rendered_color_{i}')(tf.concat((rend, mask), axis=-1))
-                                   for i, (rend, mask) in enumerate(zip(self.rendered_color, masks))]
+        # renderer_color = RenderLayer(self.img_size, self.img_size, 3, vertex_colors, np.ones(3), self.faces,
+        #                              [self.img_size, self.img_size], [self.img_size / 2., self.img_size / 2.],
+        #                              name='render_color_layer')
+        # self.rendered_color = [renderer_color(tf.stop_gradient(v)) for i, v in enumerate(self.vertices)]
+
+        # rendered_color_and_mask = [NameLayer(f'rendered_color_{i}')(tf.concat((rend, mask), axis=-1))
+        #                            for i, (rend, mask) in enumerate(zip(self.rendered_color, masks))]
         # tv_losses = [NameLayer(f'tv_color_{i}')(tf.concat((rc, mask), axis=-1))
         #              for i, (rc, mask) in enumerate(zip(self.rendered_color, masks))]
 
@@ -309,63 +344,75 @@ class Octopus(object):
         self.inference_model = Model(
             inputs=self.inputs,
             outputs=[self.vertices_tposed] + self.vertices + [self.betas,
-                                                              self.offsets] + self.poses + self.ts + self.rendered_color
+                                                              self.offsets] + self.poses + self.ts
         )
 
-        self.opt_pose_model = Model(
-            inputs=self.inputs,
-            outputs=self.Js
+        # self.opt_pose_model = Model(
+        #     inputs=self.inputs,
+        #     outputs=self.Js
+        # )
+        #
+        # opt_pose_loss = {'J_reproj_{}'.format(i): self.repr_loss for i in range(self.num)}
+        # self.opt_pose_model.compile(loss=opt_pose_loss, optimizer='adam')
+        #
+        # self.opt_shape_model = Model(
+        #     inputs=self.inputs,
+        #     outputs=self.Js + self.face_kps + self.rendered + [self.symmetry, self.laplacian]
+        # )
+        #
+        # self.opt_texture_model = Model(
+        #     inputs=self.inputs,
+        #     outputs=rendered_color_and_mask + self.rendered# + tv_losses
+        # )
+
+        uv = NameLayer('uv')(uv)
+        self.uv_network = Model(
+            inputs=images + segmentations,
+            outputs=[uv]
         )
 
-        opt_pose_loss = {'J_reproj_{}'.format(i): self.repr_loss for i in range(self.num)}
-        self.opt_pose_model.compile(loss=opt_pose_loss, optimizer='adam')
-
-        self.opt_shape_model = Model(
-            inputs=self.inputs,
-            outputs=self.Js + self.face_kps + self.rendered + [self.symmetry, self.laplacian]
-        )
-
-        self.opt_texture_model = Model(
-            inputs=self.inputs,
-            outputs=rendered_color_and_mask + self.rendered# + tv_losses
-        )
-
-        opt_shape_loss = {
-            'laplacian': laplace_mse,
-            'symmetry': symmetry_mse,
+        uv_loss = {
+            'uv': 'mse'
         }
-        opt_shape_weights = {
-            'laplacian': 100. * self.num,
-            'symmetry': 50. * self.num,
-        }
-        opt_texture_loss = {
-            # 'rendered_color': lambda _, __: self.texture_loss
-        }
-        opt_texture_weights = {}
-        for i in range(self.num):
-            opt_shape_loss['rendered_{}'.format(i)] = 'mse'
-            opt_shape_weights['rendered_{}'.format(i)] = 1.
+        adam_opt = tf.keras.optimizers.Adam(learning_rate=.001)
+        self.uv_network.compile(loss=uv_loss, optimizer=adam_opt)
+        # opt_shape_loss = {
+        #     'laplacian': laplace_mse,
+        #     'symmetry': symmetry_mse,
+        # }
+        # opt_shape_weights = {
+        #     'laplacian': 100. * self.num,
+        #     'symmetry': 50. * self.num,
+        # }
+        # opt_texture_loss = {
+        #     # 'rendered_color': lambda _, __: self.texture_loss
+        # }
+        # opt_texture_weights = {}
+        # for i in range(self.num):
+        #     opt_shape_loss['rendered_{}'.format(i)] = 'mse'
+        #     opt_shape_weights['rendered_{}'.format(i)] = 1.
+        #
+        #     opt_shape_loss['J_reproj_{}'.format(i)] = self.repr_loss
+        #     opt_shape_weights['J_reproj_{}'.format(i)] = 50.
+        #
+        #     opt_shape_loss['face_reproj_{}'.format(i)] = self.repr_loss
+        #     opt_shape_weights['face_reproj_{}'.format(i)] = 10. * self.num
+        #
+        #     opt_texture_loss['rendered_color_{}'.format(i)] = texture_loss
+        #     opt_texture_weights['rendered_color_{}'.format(i)] = 1.
+        #
+        #     # opt_texture_loss['tv_color_{}'.format(i)] = tv_loss
+        #     # opt_texture_weights['tv_color_{}'.format(i)] = 100.
+        #
+        #     opt_texture_loss['rendered_{}'.format(i)] = 'mse'
+        #     opt_texture_weights['rendered_{}'.format(i)] = 0.
 
-            opt_shape_loss['J_reproj_{}'.format(i)] = self.repr_loss
-            opt_shape_weights['J_reproj_{}'.format(i)] = 50.
 
-            opt_shape_loss['face_reproj_{}'.format(i)] = self.repr_loss
-            opt_shape_weights['face_reproj_{}'.format(i)] = 10. * self.num
-
-            opt_texture_loss['rendered_color_{}'.format(i)] = texture_loss
-            opt_texture_weights['rendered_color_{}'.format(i)] = 1.
-
-            # opt_texture_loss['tv_color_{}'.format(i)] = tv_loss
-            # opt_texture_weights['tv_color_{}'.format(i)] = 100.
-
-            opt_texture_loss['rendered_{}'.format(i)] = 'mse'
-            opt_texture_weights['rendered_{}'.format(i)] = 0.
-
-        self.opt_shape_model.compile(loss=opt_shape_loss, loss_weights=opt_shape_weights, optimizer='adam')
-        adam_opt = tf.keras.optimizers.Adam(learning_rate=.01)
+        # self.opt_shape_model.compile(loss=opt_shape_loss, loss_weights=opt_shape_weights, optimizer='adam')
+        # adam_opt = tf.keras.optimizers.Adam(learning_rate=.01)
         # self.opt_texture_model.add_loss([.1 * tf.image.total_variation(rend_color) for rend_color in self.rendered_color])
         # self.adam_opt = adam_opt.minimize(self.texture_loss, var_list=[self.uv])
-        self.opt_texture_model.compile(loss=opt_texture_loss, loss_weights=opt_texture_weights, optimizer=adam_opt)
+        # self.opt_texture_model.compile(loss=opt_texture_loss, loss_weights=opt_texture_weights, optimizer=adam_opt)
 
     def load(self, checkpoint_path):
         self.inference_model.load_weights(checkpoint_path, by_name=True)

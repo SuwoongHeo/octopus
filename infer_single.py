@@ -9,6 +9,7 @@ from tensorflow.python.keras import backend as K
 from glob import glob
 import imageio
 import numpy as np
+import time
 
 from lib.io import openpose_from_file, read_segmentation, write_mesh
 from model.octopus import Octopus
@@ -51,9 +52,43 @@ def main(weights, name, img_dir, segm_dir, pose_dir, out_dir, opt_pose_steps, op
         print('Optimizing for shape...')
         model.opt_shape(segmentations, joints_2d, face_2d, opt_steps=opt_shape_steps)
 
-    if opt_texture_steps:
-        print('Optimizing for texture...')
-        model.opt_texture(segmentations, joints_2d, images, opt_texture_steps)
+    #######################
+    print('Running second time')
+    segmentations = [read_segmentation(f) for f in segm_files]
+    images = [np.array(imageio.imread(f), 'float32') / 255. for f in img_files]
+
+    joints_2d, face_2d = [], []
+    j_2d_test, f_2d_test = [], []
+    for f in pose_files:
+        j, f, j_o, f_o = openpose_from_file(f)
+
+        assert(len(j) == 25)
+        assert(len(f) == 70)
+
+        joints_2d.append(j)
+        face_2d.append(f)
+        j_2d_test.append(j_o)
+        f_2d_test.append(f_o)
+
+    duration = 0.
+    if opt_pose_steps:
+        print('Optimizing for pose...')
+        start = time.time()
+        model.opt_pose(segmentations, joints_2d, opt_steps=opt_pose_steps)
+        duration += (time.time() - start)
+
+    if opt_shape_steps:
+        print('Optimizing for shape...')
+        start = time.time()
+        model.opt_shape(segmentations, joints_2d, face_2d, opt_steps=opt_shape_steps)
+        duration += (time.time() - start)
+
+    print(f'Took {duration}s')
+    ########################################
+
+    # if opt_texture_steps:
+    #     print('Optimizing for texture...')
+    #     model.opt_texture(segmentations, joints_2d, images, opt_texture_steps)
 
     print('Estimating shape...')
     pred = model.predict(segmentations, joints_2d)
@@ -117,7 +152,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--gpuID', '-g',
-        default='6',
+        default='7',
         help='GPU ID to use (default : 0), -1 for CPU')
 
     args = parser.parse_args()
