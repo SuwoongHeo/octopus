@@ -36,19 +36,25 @@ def read_segmentation(file):
 
 
 def openpose_from_file(file, resolution=(1080, 1080), person=0):
-    with open(file) as f:
-        data = json.load(f)['people'][person]
+    with open(file, 'r') as f:
+        #todo temporary
+        # data = json.load(f)['people'][person]
+        data = json.load(f)['people']
+        if type(data) == list:
+            data = data[0]
 
         pose = np.array(data['pose_keypoints_2d']).reshape(-1, 3)
+        pose_orig = pose
         pose[:, 2] /= np.expand_dims(np.mean(pose[:, 2][pose[:, 2] > 0.1]), -1)
         pose = pose * np.array([2. / resolution[1], -2. / resolution[0], 1.]) + np.array([-1., 1., 0.])
         pose[:, 0] *= 1. * resolution[1] / resolution[0]
 
         face = np.array(data['face_keypoints_2d']).reshape(-1, 3)
+        face_orig = face
         face = face * np.array([2. / resolution[1], -2. / resolution[0], 1.]) + np.array([-1., 1., 0.])
         face[:, 0] *= 1. * resolution[1] / resolution[0]
 
-        return pose, face
+        return pose, face, pose_orig, face_orig
 
 
 def write_mesh(filename, v, f):

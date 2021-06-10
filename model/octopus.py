@@ -220,13 +220,22 @@ class Octopus(object):
             outputs=[self.vertices_tposed] + self.vertices + [self.betas, self.offsets] + self.poses + self.ts
         )
 
+        # self.opt_pose_model = Model(
+        #     inputs=self.inputs,
+        #     outputs=self.Js
+        # )
         self.opt_pose_model = Model(
             inputs=self.inputs,
-            outputs=self.Js
+            outputs=self.Js + self.rendered
         )
-
         opt_pose_loss = {'J_reproj_{}'.format(i): self.repr_loss for i in range(self.num)}
-        self.opt_pose_model.compile(loss=opt_pose_loss, optimizer='adam')
+        # opt_pose_weights = {'J_reproj_{}'.format(i): 1. for i in range(self.num)}
+        opt_pose_weights = {'J_reproj_{}'.format(i): 1 for i in range(self.num)}
+        # for i in range(self.num):
+        #     opt_pose_loss['rendered_{}'.format(i)] = 'mae'
+        #     opt_pose_weights['rendered_{}'.format(i)] = 1.
+
+        self.opt_pose_model.compile(loss=opt_pose_loss, loss_weights=opt_pose_weights, optimizer='adam')
 
         self.opt_shape_model = Model(
             inputs=self.inputs,
@@ -237,13 +246,17 @@ class Octopus(object):
             'symmetry': symmetry_mse,
         }
         opt_shape_weights = {
-            'laplacian': 100. * self.num,
-            'symmetry': 50. * self.num,
+            # 'laplacian': 100. * self.num, #default
+            # 'symmetry': 50. * self.num, #default
+            'laplacian': 200. * self.num,
+            'symmetry': 100. * self.num,
         }
 
         for i in range(self.num):
-            opt_shape_loss['rendered_{}'.format(i)] = 'mse'
-            opt_shape_weights['rendered_{}'.format(i)] = 1.
+            opt_shape_loss['rendered_{}'.format(i)] = 'mae'
+            opt_shape_weights['rendered_{}'.format(i)] = 5.
+            # opt_shape_loss['rendered_{}'.format(i)] = 'mse'
+            # opt_shape_weights['rendered_{}'.format(i)] = 1. # default
 
             opt_shape_loss['J_reproj_{}'.format(i)] = self.repr_loss
             opt_shape_weights['J_reproj_{}'.format(i)] = 50.
@@ -272,6 +285,12 @@ class Octopus(object):
             supervision['J_reproj_{}'.format(i)] = np.tile(
                 np.float32(np.expand_dims(joints_2d[i], 0)),
                 (opt_steps, 1, 1)
+            )
+            supervision['rendered_{}'.format(i)] = np.tile(
+                np.expand_dims(
+                    np.any(np.float32(segmentations[i].reshape((1, self.img_size, self.img_size, -1)) > 0), axis=-1),
+                    -1),
+                (opt_steps, 1, 1, 1)
             )
 
         self.opt_pose_model.fit(
