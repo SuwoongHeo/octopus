@@ -106,45 +106,47 @@ class Octopus(object):
         posetrans = Add(name='posetrans')
 
         dense_layers = []
+        batched_Js = tf.concat(Js, 0)
+        batched_images = tf.concat(images, 0)
+        # for i, (J, image) in enumerate(zip(Js, images)):
+        conv2d_0_ = conv2d_0(batched_images)
+        maxpool_0_ = maxpool_0(conv2d_0_)
 
-        for i, (J, image) in enumerate(zip(Js, images)):
-            conv2d_0_i = conv2d_0(image)
-            maxpool_0_i = maxpool_0(conv2d_0_i)
+        conv2d_1_ = conv2d_1(maxpool_0_)
+        maxpool_1_ = maxpool_1(conv2d_1_)
 
-            conv2d_1_i = conv2d_1(maxpool_0_i)
-            maxpool_1_i = maxpool_1(conv2d_1_i)
+        conv2d_2_ = conv2d_2(maxpool_1_)
+        maxpool_2_ = maxpool_2(conv2d_2_)
 
-            conv2d_2_i = conv2d_2(maxpool_1_i)
-            maxpool_2_i = maxpool_2(conv2d_2_i)
+        conv2d_3_ = conv2d_3(maxpool_2_)
+        maxpool_3_ = maxpool_3(conv2d_3_)
 
-            conv2d_3_i = conv2d_3(maxpool_2_i)
-            maxpool_3_i = maxpool_3(conv2d_3_i)
+        conv2d_4_ = conv2d_4(maxpool_3_)
+        maxpool_4_ = maxpool_4(conv2d_4_)
 
-            conv2d_4_i = conv2d_4(maxpool_3_i)
-            maxpool_4_i = maxpool_4(conv2d_4_i)
+        # shape
+        flat_ = flat(maxpool_4_)
 
-            # shape
-            flat_i = flat(maxpool_4_i)
+        latent_code_ = latent_code(flat_)
 
-            latent_code_i = latent_code(flat_i)
-            dense_layers.append(latent_code_i)
+        # pose
+        J_flat_ = J_flat(batched_Js)
+        latent_pose_from_I_ = latent_pose_from_I(flat_)
+        latent_pose_from_J_ = latent_pose_from_J(J_flat_)
 
-            # pose
-            J_flat_i = J_flat(J)
-            latent_pose_from_I_i = latent_pose_from_I(flat_i)
-            latent_pose_from_J_i = latent_pose_from_J(J_flat_i)
+        concat_pose_ = concat_pose([latent_pose_from_I_, latent_pose_from_J_])
+        latent_pose_ = latent_pose(concat_pose_)
+        posetrans_res_ = posetrans_res(latent_pose_)
+        posetrans_ = posetrans([posetrans_res_, posetrans_init])
 
-            concat_pose_i = concat_pose([latent_pose_from_I_i, latent_pose_from_J_i])
-            latent_pose_i = latent_pose(concat_pose_i)
-            posetrans_res_i = posetrans_res(latent_pose_i)
-            posetrans_i = posetrans([posetrans_res_i, posetrans_init])
-
+        for i in range(self.num):
             self.poses.append(
-                Lambda(lambda x: tf.reshape(x[:, 3:], (-1, 24, 3, 3)), name='pose_{}'.format(i))(posetrans_i)
+                Lambda(lambda x: tf.reshape(x[:, 3:], (-1, 24, 3, 3)), name='pose_{}'.format(i))(posetrans_[i:i+1])
             )
             self.ts.append(
-                Lambda(lambda x: x[:, :3], name='trans_{}'.format(i))(posetrans_i)
+                Lambda(lambda x: x[:, :3], name='trans_{}'.format(i))(posetrans_[i:i+1])
             )
+            dense_layers.append(latent_code_[i:i+1])
 
         if self.num > 1:
             self.dense_merged = Average(name='merged_latent_shape')(dense_layers)
