@@ -1,4 +1,7 @@
+import glob
 import os
+import random
+
 import cv2
 import numpy as np
 import tensorflow as tf
@@ -24,6 +27,7 @@ import dill
 import imageio
 
 from lib.io import parse_obj
+from lib.io import openpose_from_file, read_segmentation, write_mesh
 
 dill._dill._reverse_typemap["ObjectType"] = object
 
@@ -212,12 +216,12 @@ class Octopus(object):
 
         for i in range(self.num):
             self.poses.append(
-                Lambda(lambda x: tf.reshape(x[:, 3:], (-1, 24, 3, 3)), name='pose_{}'.format(i))(posetrans_[i:i+1])
+                Lambda(lambda x: tf.reshape(x[:, 3:], (-1, 24, 3, 3)), name='pose_{}'.format(i))(posetrans_[i:i + 1])
             )
             self.ts.append(
-                Lambda(lambda x: x[:, :3], name='trans_{}'.format(i))(posetrans_[i:i+1])
+                Lambda(lambda x: x[:, :3], name='trans_{}'.format(i))(posetrans_[i:i + 1])
             )
-            dense_layers.append(latent_code_[i:i+1])
+            dense_layers.append(latent_code_[i:i + 1])
 
         if self.num > 1:
             self.dense_merged = Average(name='merged_latent_shape')(dense_layers)
@@ -329,7 +333,7 @@ class Octopus(object):
 
         self.opt_texture_model = Model(
             inputs=self.inputs,
-            outputs=rendered_color_and_mask + self.rendered# + tv_losses
+            outputs=rendered_color_and_mask + self.rendered  # + tv_losses
         )
 
         self.finetune_shape_pose_model = Model(
@@ -373,7 +377,6 @@ class Octopus(object):
         shape_pose_loss = dict(opt_shape_loss)
         shape_pose_loss.update(opt_pose_loss)
         self.finetune_shape_pose_model.compile(loss=shape_pose_loss, loss_weights=opt_shape_weights, optimizer='adam')
-
 
     def load(self, checkpoint_path):
         self.inference_model.load_weights(checkpoint_path, by_name=True)
@@ -492,59 +495,125 @@ class Octopus(object):
 
         return res
 
-    def finetune_pose_shape(self, segmentation_files, pose_files, steps):
+    def finetune_pose_shape(self, steps, out_dir):
         from lib.io import read_segmentation, openpose_from_file
+        root = '/ssd3/duc/RPDataset/Image_GT'
+        all_data = glob.glob(os.path.join(root, '*'))
+        ratio = int(.9 * len(all_data))
+        train_data = all_data[:ratio]
+        test_data = all_data[ratio:]
+        train_set, test_set = [], []
+        for person in train_data:
+            all_poses = glob.glob(os.path.join(root, person, '*'))
+            for poses in all_poses:
+                if not os.path.isdir(poses):
+                    continue
+
+                all_scenes = glob.glob(os.path.join(root, person, poses, '*'))
+                for scene in all_scenes:
+                    if '_smplx' in scene:
+                        continue
+                    if '_smpl' in scene:
+                        continue
+                    if not os.path.isdir(scene):
+                        continue
+                    train_set.append(scene)
+
+        for person in test_data:
+            all_poses = glob.glob(os.path.join(root, person, '*'))
+            for poses in all_poses:
+                if not os.path.isdir(poses):
+                    continue
+
+                all_scenes = glob.glob(os.path.join(root, person, poses, '*'))
+                for scene in all_scenes:
+                    if '_smplx' in scene:
+                        continue
+                    if '_smpl' in scene:
+                        continue
+                    if not os.path.isdir(scene):
+                        continue
+                    test_set.append(scene)
 
         opt_steps = 1
         supervision = {
             'laplacian': np.zeros((opt_steps, 6890, 3)),
             'symmetry': np.zeros((opt_steps, 6890, 3)),
         }
+        image_path = 'image'
+        segmentation_path = 'segmentations'
+        pose_path = 'keypoints'
         for epoch in range(steps):
-            data = {}
-            for i in range(self.num):
-                segmentations = read_segmentation(segmentation_files[i])
-                joints_2d, face_2d = [], []
-                for f in pose_files:
-                    j, f, j_o, f_o = openpose_from_file(f)
+            random.shuffle(train_set)
+            for batch in train_set:
+                segmentation_files = os.listdir(os.path.join(batch, segmentation_path))
+                random.shuffle(segmentation_files)
+                segmentation_files = segmentation_files[:self.num]
+                pose_files = [os.path.join(batch, pose_path, f'{img_file.split(".")[0]}_keypoints.json')
+                              for img_file in segmentation_files]
+                segmentation_files = [os.path.join(batch, segmentation_path, img_file) for img_file in segmentation_files]
+                data = {}
+                for i in range(self.num):
+                    print(segmentation_files[i])
+                    segmentations = read_segmentation(segmentation_files[i])
+                    joints_2d, face_2d, j_o, f_o = openpose_from_file(pose_files[i])
+                    assert (len(joints_2d) == 25)
+                    assert (len(face_2d) == 70)
 
+                    data['image_{}'.format(i)] = np.tile(
+                        np.float32(segmentations.reshape((1, self.img_size, self.img_size, -1))),
+                        (opt_steps, 1, 1, 1)
+                    )
+                    data['J_2d_{}'.format(i)] = np.tile(
+                        np.float32(np.expand_dims(joints_2d, 0)),
+                        (opt_steps, 1, 1)
+                    )
+
+                    supervision['J_reproj_{}'.format(i)] = np.tile(
+                        np.float32(np.expand_dims(joints_2d, 0)),
+                        (opt_steps, 1, 1)
+                    )
+                    supervision['face_reproj_{}'.format(i)] = np.tile(
+                        np.float32(np.expand_dims(face_2d, 0)),
+                        (opt_steps, 1, 1)
+                    )
+                    supervision['rendered_{}'.format(i)] = np.tile(
+                        np.expand_dims(
+                            np.any(np.float32(segmentations.reshape((1, self.img_size, self.img_size, -1)) > 0),
+                                   axis=-1),
+                            -1),
+                        (opt_steps, 1, 1, 1)
+                    )
+                    supervision['J_reproj_{}'.format(i)] = np.tile(
+                        np.float32(np.expand_dims(joints_2d, 0)),
+                        (opt_steps, 1, 1)
+                    )
+
+                self.opt_shape_model.fit(
+                    data, supervision,
+                    batch_size=1, epochs=1, verbose=0, callbacks=[TqdmCallback(verbose=1)]
+                )
+
+            self.inference_model.save_weights(f'out_dir/octopus_weights_{epoch}.hdf5')
+            for batch in test_set:
+                name = os.path.basename(batch)
+                segmentation_files = sorted(glob.glob(os.path.join(batch, segmentation_path)))
+                keypoint_files = sorted(glob.glob(os.path.join(batch, pose_path)))
+                segmentations = [read_segmentation(segmentation_files[i]) for i in range(len(segmentation_files))]
+                joints_2d = []
+                for f in keypoint_files:
+                    j, f, j_o, f_o = openpose_from_file(f)
                     assert (len(j) == 25)
                     assert (len(f) == 70)
-
                     joints_2d.append(j)
-                    face_2d.append(f)
 
-                data['image_{}'.format(i)] = np.tile(
-                    np.float32(segmentations[i].reshape((1, self.img_size, self.img_size, -1))),
-                    (opt_steps, 1, 1, 1)
-                )
-                data['J_2d_{}'.format(i)] = np.tile(
-                    np.float32(np.expand_dims(joints_2d[i], 0)),
-                    (opt_steps, 1, 1)
-                )
+                pred = self.predict(segmentations, joints_2d)
+                with open(f'{out_dir}/{name}.pkl', 'wb') as f:
+                    pkl.dump(pred['vertices'], f)
 
-                supervision['J_reproj_{}'.format(i)] = np.tile(
-                    np.float32(np.expand_dims(joints_2d[i], 0)),
-                    (opt_steps, 1, 1)
-                )
-                supervision['face_reproj_{}'.format(i)] = np.tile(
-                    np.float32(np.expand_dims(face_kps[i], 0)),
-                    (opt_steps, 1, 1)
-                )
-                supervision['rendered_{}'.format(i)] = np.tile(
-                    np.expand_dims(
-                        np.any(np.float32(segmentations[i].reshape((1, self.img_size, self.img_size, -1)) > 0), axis=-1),
-                        -1),
-                    (opt_steps, 1, 1, 1)
-                )
-                supervision['J_reproj_{}'.format(i)] = np.tile(
-                    np.float32(np.expand_dims(joints_2d[i], 0)),
-                    (opt_steps, 1, 1)
-                )
-            self.opt_shape_model.fit(
-                data, supervision,
-                batch_size=1, epochs=1, verbose=0, callbacks=[TqdmCallback(verbose=1)]
-            )
+                write_mesh('{}/{}.obj'.format(out_dir, name), pred['vertices'][0], pred['faces'])
+                for i in range(len(pred['rendered_color'])):
+                    imageio.imwrite(f'{out_dir}/{name}_{i}_color.png', pred['rendered_color'][i, 0])
 
 
 if __name__ == "__main__":
