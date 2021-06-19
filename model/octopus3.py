@@ -295,15 +295,15 @@ class Octopus(object):
         self.rendered = [NameLayer('rendered_{}'.format(i))(renderer(v)) for i, v in enumerate(self.vertices)]
 
         # color
-        self.vertex_colors = tf.Variable(np.random.rand(6890, 3).astype('float32'), trainable=True)
-        vertex_colors = self.vertex_colors
-        renderer_color = RenderLayer(self.img_size, self.img_size, 3, vertex_colors, np.ones(3), self.faces,
-                                     [self.img_size, self.img_size], [self.img_size / 2., self.img_size / 2.],
-                                     name='render_color_layer')
-        self.rendered_color = [renderer_color(tf.stop_gradient(v)) for i, v in enumerate(self.vertices)]
-        masks = [tf.cast(tf.reduce_sum(img, axis=-1, keepdims=True) > 0., tf.float32) for img in images]
-        rendered_color_and_mask = [NameLayer(f'rendered_color_{i}')(tf.concat((rend, mask), axis=-1))
-                                   for i, (rend, mask) in enumerate(zip(self.rendered_color, masks))]
+        # self.vertex_colors = tf.Variable(np.random.rand(6890, 3).astype('float32'), trainable=True)
+        # vertex_colors = self.vertex_colors
+        # renderer_color = RenderLayer(self.img_size, self.img_size, 3, vertex_colors, np.ones(3), self.faces,
+        #                              [self.img_size, self.img_size], [self.img_size / 2., self.img_size / 2.],
+        #                              name='render_color_layer')
+        # self.rendered_color = [renderer_color(tf.stop_gradient(v)) for i, v in enumerate(self.vertices)]
+        # masks = [tf.cast(tf.reduce_sum(img, axis=-1, keepdims=True) > 0., tf.float32) for img in images]
+        # rendered_color_and_mask = [NameLayer(f'rendered_color_{i}')(tf.concat((rend, mask), axis=-1))
+        #                            for i, (rend, mask) in enumerate(zip(self.rendered_color, masks))]
         # tv_losses = [NameLayer(f'tv_color_{i}')(tf.concat((rc, mask), axis=-1))
         #              for i, (rc, mask) in enumerate(zip(self.rendered_color, masks))]
 
@@ -315,7 +315,7 @@ class Octopus(object):
         self.inference_model = Model(
             inputs=self.inputs,
             outputs=[self.vertices_tposed] + self.vertices + [self.betas,
-                                                              self.offsets] + self.poses + self.ts + self.rendered_color
+                                                              self.offsets] + self.poses + self.ts #+ self.rendered_color
         )
 
         self.opt_pose_model = Model(
@@ -333,7 +333,7 @@ class Octopus(object):
 
         self.opt_texture_model = Model(
             inputs=self.inputs,
-            outputs=rendered_color_and_mask + self.rendered  # + tv_losses
+            outputs=self.rendered  # + tv_losses
         )
 
         self.finetune_shape_pose_model = Model(
@@ -499,9 +499,9 @@ class Octopus(object):
         from lib.io import read_segmentation, openpose_from_file
         root = '/ssd3/duc/RPDataset/Image_GT'
         all_data = glob.glob(os.path.join(root, '*'))
-        ratio = int(.9 * len(all_data))
-        train_data = all_data[:ratio]
-        test_data = all_data[ratio:]
+        # ratio = int(.9 * len(all_data))
+        train_data = all_data[:-1]
+        test_data = all_data[-1:]
         train_set, test_set = [], []
         for person in train_data:
             all_poses = glob.glob(os.path.join(root, person, '*'))
@@ -546,7 +546,13 @@ class Octopus(object):
         for epoch in range(steps):
             random.shuffle(train_set)
             for batch in train_set:
-                segmentation_files = os.listdir(os.path.join(batch, segmentation_path))
+                seg_path = os.path.join(batch, segmentation_path)
+                if not os.path.exists(seg_path):
+                    continue
+                if not os.path.exists(os.path.join(batch, pose_path)):
+                    continue
+
+                segmentation_files = os.listdir(seg_path)
                 random.shuffle(segmentation_files)
                 segmentation_files = segmentation_files[:self.num]
                 pose_files = [os.path.join(batch, pose_path, f'{img_file.split(".")[0]}_keypoints.json')
@@ -554,7 +560,6 @@ class Octopus(object):
                 segmentation_files = [os.path.join(batch, segmentation_path, img_file) for img_file in segmentation_files]
                 data = {}
                 for i in range(self.num):
-                    print(segmentation_files[i])
                     segmentations = read_segmentation(segmentation_files[i])
                     joints_2d, face_2d, j_o, f_o = openpose_from_file(pose_files[i])
                     assert (len(joints_2d) == 25)
@@ -594,26 +599,31 @@ class Octopus(object):
                     batch_size=1, epochs=1, verbose=0, callbacks=[TqdmCallback(verbose=1)]
                 )
 
-            self.inference_model.save_weights(f'out_dir/octopus_weights_{epoch}.hdf5')
+            self.inference_model.save_weights(f'{out_dir}/octopus_weights_{epoch}.hdf5')
+            print('Testing...')
             for batch in test_set:
-                name = os.path.basename(batch)
-                segmentation_files = sorted(glob.glob(os.path.join(batch, segmentation_path)))
-                keypoint_files = sorted(glob.glob(os.path.join(batch, pose_path)))
-                segmentations = [read_segmentation(segmentation_files[i]) for i in range(len(segmentation_files))]
-                joints_2d = []
-                for f in keypoint_files:
-                    j, f, j_o, f_o = openpose_from_file(f)
-                    assert (len(j) == 25)
-                    assert (len(f) == 70)
-                    joints_2d.append(j)
+                print(batch)
+                name, pose, scene = batch.split('/')[-3:]
+                segmentation_files = sorted(glob.glob(os.path.join(batch, segmentation_path, '*')))
+                keypoint_files = sorted(glob.glob(os.path.join(batch, pose_path, '*')))
+                for num in range(len(segmentation_files) // self.num):
+                    segmentations = [read_segmentation(seg_file)
+                                     for seg_file in segmentation_files[num * self.num:(num + 1) * self.num]]
+                    joints_2d = []
+                    for f in keypoint_files[num * self.num:(num + 1) * self.num]:
+                        j, f, j_o, f_o = openpose_from_file(f)
+                        assert (len(j) == 25)
+                        assert (len(f) == 70)
+                        joints_2d.append(j)
 
-                pred = self.predict(segmentations, joints_2d)
-                with open(f'{out_dir}/{name}.pkl', 'wb') as f:
-                    pkl.dump(pred['vertices'], f)
+                    pred = self.predict(segmentations, joints_2d)
+                    with open(f'{out_dir}/{name}_{pose}_{scene}_{num}.pkl', 'wb') as f:
+                        pkl.dump(pred['vertices'], f)
 
-                write_mesh('{}/{}.obj'.format(out_dir, name), pred['vertices'][0], pred['faces'])
-                for i in range(len(pred['rendered_color'])):
-                    imageio.imwrite(f'{out_dir}/{name}_{i}_color.png', pred['rendered_color'][i, 0])
+                    for i in range(len(pred['vertices'])):
+                        write_mesh(f'{out_dir}/{name}_{pose}_{scene}_{num}_{i}.obj', pred['vertices'][i], pred['faces'])
+                # for i in range(len(pred['rendered_color'])):
+                #     imageio.imwrite(f'{out_dir}/{name}_{i}_color.png', pred['rendered_color'][i, 0])
 
 
 if __name__ == "__main__":
