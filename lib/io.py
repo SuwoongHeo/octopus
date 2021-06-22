@@ -45,7 +45,7 @@ def openpose_from_file(file, resolution=(1080, 1080), person=0):
 
         pose = np.array(data['pose_keypoints_2d']).reshape(-1, 3)
         pose_orig = pose
-        pose[:, 2] /= np.expand_dims(np.mean(pose[:, 2][pose[:, 2] > 0.1]), -1)
+        # pose[:, 2] /= np.expand_dims(np.mean(pose[:, 2][pose[:, 2] > 0.1]), -1)
         pose = pose * np.array([2. / resolution[1], -2. / resolution[0], 1.]) + np.array([-1., 1., 0.])
         pose[:, 0] *= 1. * resolution[1] / resolution[0]
 

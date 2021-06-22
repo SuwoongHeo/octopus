@@ -22,6 +22,7 @@ def main(weights, num, batch_file, opt_pose_steps, opt_shape_steps):
             print('Processing {}...'.format(name))
             model.load(weights)
 
+
             segm_files = sorted(glob(os.path.join(segm_dir, '*.png')))
             pose_files = sorted(glob(os.path.join(pose_dir, '*.json')))
 

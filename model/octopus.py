@@ -270,6 +270,14 @@ class Octopus(object):
 
     def load(self, checkpoint_path):
         self.inference_model.load_weights(checkpoint_path, by_name=True)
+        self.init_weight = self.inference_model.get_weights()
+
+    def set_weights(self, weights=[]):
+        if len(weights) < 1:
+            self.inference_model.set_weights(self.init_weight)
+        else:
+            self.inference_model.set_weights(weights)
+
 
     def opt_pose(self, segmentations, joints_2d, opt_steps):
         data = {}

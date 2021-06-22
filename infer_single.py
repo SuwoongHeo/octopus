@@ -24,6 +24,9 @@ def main(weights, name, segm_dir, pose_dir, out_dir, opt_pose_steps, opt_shape_s
     model = Octopus(num=len(segm_files))
     model.load(weights)
 
+    # Test reset weight
+    model.set_weights()
+
     segmentations = [read_segmentation(f) for f in segm_files]
 
     joints_2d, face_2d = [], []
@@ -65,12 +68,7 @@ def main(weights, name, segm_dir, pose_dir, out_dir, opt_pose_steps, opt_shape_s
     write_mesh('{}/{}_hres.obj'.format(out_dir, name), hres_smpl['ss']*pred['vertices_tposed'], hres_smpl['f'])
     with open('{}/{}_pred.pkl'.format(out_dir, name), 'wb') as f:
         pkl.dump(pred, f)
-    # with open('{}/{}_pred_hres.pkl'.format(out_dir, name), 'wb') as f:
-    #     pred_hres = {
-    #         'vertices_tposed':hres_smpl['ss']*pred['vertices_tposed']
-    #         ''
-    #     }
-    #     pkl.dump(pred, f)
+
     print('Done.')
 
 
