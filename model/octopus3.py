@@ -344,10 +344,14 @@ class Octopus(object):
         opt_shape_loss = {
             'laplacian': laplace_mse,
             'symmetry': symmetry_mse,
+            'betas': 'mse',
+            'offsets': 'mse'
         }
         opt_shape_weights = {
             'laplacian': 100. * self.num,
             'symmetry': 50. * self.num,
+            'betas': 100.,
+            'offsets': 100.
         }
         opt_texture_loss = {
             # 'rendered_color': lambda _, __: self.texture_loss
@@ -363,14 +367,20 @@ class Octopus(object):
             opt_shape_loss['face_reproj_{}'.format(i)] = self.repr_loss
             opt_shape_weights['face_reproj_{}'.format(i)] = 10. * self.num
 
-            opt_texture_loss['rendered_color_{}'.format(i)] = texture_loss
-            opt_texture_weights['rendered_color_{}'.format(i)] = 1.
+            opt_shape_loss[f'pose_{i}'] = 'mse'
+            opt_shape_weights[f'pose_{i}'] = 100.
+
+            opt_shape_loss[f'trans_{i}'] = 'mse'
+            opt_shape_weights[f'trans_{i}'] = 100.
+
+            # opt_texture_loss['rendered_color_{}'.format(i)] = texture_loss
+            # opt_texture_weights['rendered_color_{}'.format(i)] = 1.
 
             # opt_texture_loss['tv_color_{}'.format(i)] = tv_loss
             # opt_texture_weights['tv_color_{}'.format(i)] = 100.
 
-            opt_texture_loss['rendered_{}'.format(i)] = 'mse'
-            opt_texture_weights['rendered_{}'.format(i)] = 0.
+            # opt_texture_loss['rendered_{}'.format(i)] = 'mse'
+            # opt_texture_weights['rendered_{}'.format(i)] = 0.
 
         self.opt_shape_model.compile(loss=opt_shape_loss, loss_weights=opt_shape_weights, optimizer='adam')
 

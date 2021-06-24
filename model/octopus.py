@@ -481,7 +481,7 @@ class Octopus(object):
                 [cv2.Rodrigues(p0)[0] for p in pred[self.num + 3:2 * self.num + 3] for p0 in p[0]]
             ).reshape((self.num, -1)),
             'trans': np.array([t[0] for t in pred[2 * self.num + 3:]]),
-            'rendered_color': np.array(pred[-self.num:])
+            # 'rendered_color': np.array(pred[-self.num:])
         }
 
         return res
