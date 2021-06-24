@@ -16,18 +16,17 @@ class GraphConvolution(Layer):
         self.bias_initializer = initializers.get(bias_initializer)
         self.kernels = []
         self.bias = None
-
         super(GraphConvolution, self).__init__(**kwargs)
 
     def build(self, input_shape):
         for i in range(len(list(self.support))):
-            self.kernels.append(self.add_weight(name='kernel',
+            self.kernels.append(self.add_weight(name=f'{self.name}_kernel_{i}',
                                                 shape=(input_shape[2], self.output_dim),
                                                 initializer=self.kernel_initializer,
                                                 trainable=True))
 
         if self.use_bias:
-            self.bias = self.add_weight(name='bias',
+            self.bias = self.add_weight(name=f'{self.name}_bias_{i}',
                                         shape=(self.output_dim,),
                                         initializer=self.bias_initializer,
                                         trainable=True)

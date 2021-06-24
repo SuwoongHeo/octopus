@@ -61,3 +61,22 @@ def write_mesh(filename, v, f):
     with open(filename, 'w') as fp:
         fp.write(('v {:f} {:f} {:f}\n' * len(v)).format(*v.reshape(-1)))
         fp.write(('f {:d} {:d} {:d}\n' * len(f)).format(*(f.reshape(-1) + 1)))
+
+
+def parse_obj(file):
+    obj_file = open(file, 'r')
+
+    vertex_list = []
+    texture_list = []
+    for line in obj_file:
+        split = line.split()
+        # if blank line, skip
+        if not len(split):
+            continue
+        if split[0] == "v":
+            vertex_list.append(split[1:])
+        elif split[0] == "vt":
+            texture_list.append(split[1:])
+
+    obj_file.close()
+    return vertex_list, texture_list

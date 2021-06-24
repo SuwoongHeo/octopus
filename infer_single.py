@@ -106,7 +106,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--weights', '-w',
-        default='weights/octopus_weights2.hdf5',
+        default='weights/octopus_weights.hdf5',
         help='Model weights file (*.hdf5)')
 
     parser.add_argument(
