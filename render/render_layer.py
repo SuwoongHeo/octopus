@@ -13,7 +13,7 @@ class RenderLayer(Layer):
         self.width = width
         self.height = height
         self.num_channels = num_channels
-        self.vc = np.array(vc).astype(np.float32)
+        self.vc = vc
         self.bgcolor = np.array(bgcolor).astype(np.float32)
         self.f = np.array(f).astype(np.int32)
         self.camera_f = np.array(camera_f).astype(np.float32)

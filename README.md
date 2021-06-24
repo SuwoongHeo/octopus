@@ -1,7 +1,3 @@
-# Note
-
-This repository is modified version of the original repository https://github.com/thmoa/octopus for migration to TF2 with python 3.7.
-
 # Octopus
 
 This repository contains code corresponding to the paper **Learning to Reconstruct People in Clothing from a Single RGB Camera**.
